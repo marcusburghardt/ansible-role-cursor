@@ -1,0 +1,69 @@
+---
+# Integration test: exercises the real AppImage flow against a local fake API.
+# It requires neither internet access nor root, and it is safe to run twice:
+# the second run must report no changes.
+- name: Verify the AppImage installation flow
+  hosts: localhost
+  connection: local
+  vars:
+    _cursor_test_port: 18080
+    _cursor_test_root: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/ansible-role-cursor-test"
+    cursor_install_method: appimage
+    cursor_version: latest
+    cursor_download_base_url: "http://127.0.0.1:{{ _cursor_test_port }}/updates/download/golden"
+    cursor_appimage_dir: "{{ _cursor_test_root }}/bin"
+    cursor_desktop_dir: "{{ _cursor_test_root }}/applications"
+  pre_tasks:
+    - name: Create the test root directory
+      ansible.builtin.file:
+        path: "{{ _cursor_test_root }}"
+        state: directory
+        mode: '0750'
+
+    - name: Start the fake Cursor API
+      ansible.builtin.shell:
+        cmd: >-
+          nohup {{ ansible_playbook_python }} {{ playbook_dir }}/fake_cursor_api.py
+          --port {{ _cursor_test_port }} > {{ _cursor_test_root }}/api.log 2>&1 &
+          echo $!
+      register: _cursor_api_process
+      changed_when: false
+
+    - name: Wait for the fake Cursor API
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ _cursor_test_port }}"
+        timeout: 15
+      changed_when: false
+  roles:
+    - ansible-role-cursor
+  post_tasks:
+    - name: Check the installed AppImage
+      ansible.builtin.stat:
+        path: "{{ cursor_appimage_dir }}/cursor.AppImage"
+      register: _cursor_appimage_stat
+
+    - name: Read the AppImage version marker
+      ansible.builtin.slurp:
+        src: "{{ cursor_appimage_dir }}/.cursor-version"
+      register: _cursor_version_marker
+
+    - name: Read the deployed desktop entry
+      ansible.builtin.slurp:
+        src: "{{ cursor_desktop_dir }}/cursor.desktop"
+      register: _cursor_desktop_entry
+
+    - name: Verify the AppImage installation result
+      ansible.builtin.assert:
+        that:
+          - _cursor_appimage_stat.stat.exists
+          - _cursor_appimage_stat.stat.mode == '0750'
+          - (_cursor_version_marker.content | b64decode | trim) == '3.0.16'
+          - "'Exec=' ~ cursor_appimage_dir ~ '/cursor.AppImage --no-sandbox %F' in (_cursor_desktop_entry.content | b64decode)"
+          - "'StartupWMClass=Cursor' in (_cursor_desktop_entry.content | b64decode)"
+
+    - name: Stop the fake Cursor API
+      ansible.builtin.command:
+        cmd: "kill {{ _cursor_api_process.stdout | trim }}"
+      changed_when: false
+      failed_when: false

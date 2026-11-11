@@ -1,0 +1,139 @@
+---
+# Query the Cursor download API to resolve the target version.
+# The API returns a 302 redirect; following it gives us the final URL
+# with the full version embedded in the filename.
+- name: Query Cursor download API for version
+  ansible.builtin.uri:
+    url: "{{ cursor_download_base_url }}/{{ _cursor_platform_slug }}/cursor/{{ cursor_version }}"
+    method: HEAD
+    follow_redirects: safe
+    status_code: [200]
+  register: _cursor_api_response
+  changed_when: false
+
+- name: Extract version from download URL
+  ansible.builtin.set_fact:
+    _cursor_target_version: >-
+      {{ (_cursor_api_response.url
+          | regex_search('[Cc]ursor[-_](\d+\.\d+\.\d+)', '\1')
+          | default([''])) | first }}
+    _cursor_download_url: "{{ _cursor_api_response.url }}"
+
+- name: Verify version was extracted
+  ansible.builtin.assert:
+    that:
+      - _cursor_target_version | length > 0
+    fail_msg: >-
+      Failed to extract Cursor version from download URL:
+      {{ _cursor_api_response.url }}.
+      The URL filename pattern may have changed. Check
+      https://cursor.com/download for the current format.
+
+# Detect currently installed version (per format)
+- name: Gather installed packages
+  ansible.builtin.package_facts:
+    manager: auto
+  when: _cursor_resolved_method in ['rpm', 'deb']
+
+- name: Check installed Cursor version (AppImage)
+  ansible.builtin.slurp:
+    src: "{{ cursor_appimage_dir }}/.cursor-version"
+  register: _cursor_installed_appimage
+  failed_when: false
+  when: _cursor_resolved_method == 'appimage'
+
+# Compare installed version against target
+- name: Determine installed version
+  ansible.builtin.set_fact:
+    _cursor_installed_version: >-
+      {%- if _cursor_resolved_method in ['rpm', 'deb'] -%}
+        {{ ((ansible_facts['packages'] | default({}))['cursor'] | default([]) | first | default({}))['version'] | default('not_installed') }}
+      {%- elif _cursor_resolved_method == 'appimage' and
+               _cursor_installed_appimage.content is defined -%}
+        {{ _cursor_installed_appimage.content | b64decode | trim }}
+      {%- else -%}
+        not_installed
+      {%- endif -%}
+
+- name: Compare versions
+  ansible.builtin.set_fact:
+    _cursor_install_needed: "{{ _cursor_installed_version != _cursor_target_version }}"
+
+- name: Report version status
+  ansible.builtin.debug:
+    msg: >-
+      Cursor {{ _cursor_resolved_method }}
+      ({{ ansible_facts['architecture'] }}):
+      installed={{ _cursor_installed_version }},
+      target={{ _cursor_target_version }},
+      install_needed={{ _cursor_install_needed }}
+
+# Download and install (only when versions differ)
+- name: Install or update Cursor
+  when: _cursor_install_needed | bool
+  block:
+    # RPM / DEB: download to temp, install, clean up
+    - name: Download Cursor package
+      ansible.builtin.get_url:
+        url: "{{ _cursor_download_url }}"
+        dest: "/tmp/cursor-install.{{ _cursor_resolved_method }}"
+        mode: '0644'
+      when: _cursor_resolved_method in ['rpm', 'deb']
+
+    - name: Install Cursor (RPM)
+      become: true
+      ansible.builtin.dnf:
+        name: "/tmp/cursor-install.rpm"
+        state: present
+        disable_gpg_check: true
+        allow_downgrade: true
+      when: _cursor_resolved_method == 'rpm'
+
+    - name: Install Cursor (DEB)
+      become: true
+      ansible.builtin.apt:
+        deb: "/tmp/cursor-install.deb"
+      when: _cursor_resolved_method == 'deb'
+
+    - name: Clean up temporary package file
+      ansible.builtin.file:
+        path: "/tmp/cursor-install.{{ _cursor_resolved_method }}"
+        state: absent
+      when: _cursor_resolved_method in ['rpm', 'deb']
+
+    # AppImage: download directly to target directory
+    - name: Ensure AppImage directory exists
+      ansible.builtin.file:
+        path: "{{ cursor_appimage_dir }}"
+        state: directory
+        mode: '0750'
+      when: _cursor_resolved_method == 'appimage'
+
+    - name: Download Cursor AppImage
+      ansible.builtin.get_url:
+        url: "{{ _cursor_download_url }}"
+        dest: "{{ cursor_appimage_dir }}/cursor.AppImage"
+        mode: '0750'
+      when: _cursor_resolved_method == 'appimage'
+
+    - name: Write AppImage version marker
+      ansible.builtin.copy:
+        content: "{{ _cursor_target_version }}"
+        dest: "{{ cursor_appimage_dir }}/.cursor-version"
+        mode: '0640'
+      when: _cursor_resolved_method == 'appimage'
+
+# Desktop entry for AppImage installations
+- name: Ensure desktop applications directory exists
+  ansible.builtin.file:
+    path: "{{ cursor_desktop_dir }}"
+    state: directory
+    mode: '0750'
+  when: _cursor_resolved_method == 'appimage'
+
+- name: Deploy Cursor desktop entry
+  ansible.builtin.template:
+    src: cursor.desktop.j2
+    dest: "{{ cursor_desktop_dir }}/cursor.desktop"
+    mode: '0640'
+  when: _cursor_resolved_method == 'appimage'

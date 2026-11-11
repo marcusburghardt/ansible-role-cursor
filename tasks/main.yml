@@ -1,0 +1,7 @@
+---
+# tasks file for ansible-role-cursor
+- name: Resolve installation method and platform
+  ansible.builtin.include_tasks: resolve.yml
+
+- name: Install or update Cursor
+  ansible.builtin.include_tasks: install.yml

@@ -1,0 +1,133 @@
+---
+# Contract tests: pure resolution logic, no network and no privilege escalation.
+- name: Verify Cursor role contracts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _cursor_cases:
+      - name: RedHat x86_64
+        os_family: RedHat
+        arch: x86_64
+        install_method: auto
+        method: rpm
+        slug: linux-x64-rpm
+      - name: RedHat aarch64
+        os_family: RedHat
+        arch: aarch64
+        install_method: auto
+        method: rpm
+        slug: linux-arm64-rpm
+      - name: Debian x86_64
+        os_family: Debian
+        arch: x86_64
+        install_method: auto
+        method: deb
+        slug: linux-x64-deb
+      - name: Debian aarch64
+        os_family: Debian
+        arch: aarch64
+        install_method: auto
+        method: deb
+        slug: linux-arm64-deb
+      - name: Suse x86_64 falls back to AppImage
+        os_family: Suse
+        arch: x86_64
+        install_method: auto
+        method: appimage
+        slug: linux-x64
+      - name: Explicit AppImage override on RedHat
+        os_family: RedHat
+        arch: x86_64
+        install_method: appimage
+        method: appimage
+        slug: linux-x64
+      - name: Explicit deb override on RedHat arm64
+        os_family: RedHat
+        arch: aarch64
+        install_method: deb
+        method: deb
+        slug: linux-arm64-deb
+    _cursor_sample_urls:
+      - https://downloads.cursor.com/production/Cursor-3.0.16-x86_64.AppImage
+      - https://downloads.cursor.com/production/cursor-3.1.0.x86_64.rpm
+      - https://downloads.cursor.com/production/Cursor_2.0.0_amd64.deb
+  tasks:
+    - name: Load role variables
+      ansible.builtin.include_vars:
+        file: ../vars/main.yml
+
+    - name: Verify method and platform resolution
+      ansible.builtin.include_tasks: assert_resolve.yml
+      loop: "{{ _cursor_cases }}"
+      loop_control:
+        loop_var: case
+        label: "{{ case.name }}"
+
+    - name: Extract versions from representative redirect URLs
+      ansible.builtin.set_fact:
+        _cursor_versions: >-
+          {{ _cursor_sample_urls
+             | map('regex_search', '[Cc]ursor[-_](\d+\.\d+\.\d+)', '\1')
+             | map('first') | list }}
+
+    - name: Verify version extraction
+      ansible.builtin.assert:
+        that:
+          - _cursor_versions == ['3.0.16', '3.1.0', '2.0.0']
+        fail_msg: "Unexpected version extraction: {{ _cursor_versions }}"
+
+    - name: Render desktop entry for a custom AppImage directory
+      ansible.builtin.set_fact:
+        _cursor_desktop: "{{ lookup('ansible.builtin.template', '../templates/cursor.desktop.j2') }}"
+      vars:
+        cursor_appimage_dir: /opt/cursor
+
+    - name: Verify desktop entry contract
+      ansible.builtin.assert:
+        that:
+          - "'Exec=/opt/cursor/cursor.AppImage --no-sandbox %F' in _cursor_desktop"
+          - "'Exec=/opt/cursor/cursor.AppImage --no-sandbox --new-window %F' in _cursor_desktop"
+          - "'StartupWMClass=Cursor' in _cursor_desktop"
+          - "'Type=Application' in _cursor_desktop"
+
+    - name: Verify an unsupported installation method fails with guidance
+      block:
+        - name: Request an unsupported installation method
+          ansible.builtin.set_fact:
+            cursor_install_method: snap
+
+        - name: Resolve with an unsupported installation method
+          ansible.builtin.include_tasks: ../tasks/resolve.yml
+
+        - name: Fail when an unsupported method does not stop the role
+          ansible.builtin.fail:
+            msg: "Expected an unsupported installation method to fail"
+      rescue:
+        - name: Verify the unsupported-method message
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_task.name == 'Validate installation method'
+              - "'Unsupported cursor_install_method' in ansible_failed_result.msg"
+
+    - name: Verify an unsupported architecture fails with guidance
+      block:
+        - name: Serve an unsupported architecture
+          ansible.builtin.set_fact:
+            ansible_facts:
+              os_family: RedHat
+              architecture: riscv64
+            cursor_install_method: auto
+
+        - name: Resolve with an unsupported architecture
+          ansible.builtin.include_tasks: ../tasks/resolve.yml
+
+        - name: Fail when an unsupported architecture does not stop the role
+          ansible.builtin.fail:
+            msg: "Expected an unsupported architecture to fail"
+      rescue:
+        - name: Verify the unsupported-architecture message
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_task.name == 'Validate CPU architecture'
+              - "'Unsupported architecture' in ansible_failed_result.msg"

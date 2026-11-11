@@ -1,0 +1,21 @@
+---
+# Cursor IDE installation
+# Version: "latest" to track the newest release, or a major.minor version
+# (e.g., "3.0") to pin. The full version is resolved from the Cursor API.
+cursor_version: latest
+
+# Install method: "auto" detects from OS family (RedHat -> rpm, Debian -> deb,
+# other -> appimage). Override with "rpm", "deb", or "appimage".
+cursor_install_method: auto
+
+# Directory for the AppImage binary (only used when install method is appimage)
+cursor_appimage_dir: "{{ ansible_facts['user_dir'] }}/.local/bin"
+
+# Directory for the AppImage desktop entry (only used when install method is
+# appimage). RPM and DEB packages ship their own desktop entry.
+cursor_desktop_dir: "{{ ansible_facts['user_dir'] }}/.local/share/applications"
+
+# Base URL of the Cursor download API. Override this to use a mirror, or in
+# tests to point at a local endpoint. The version is appended as
+# <base_url>/<platform_slug>/cursor/<cursor_version>.
+cursor_download_base_url: "https://api2.cursor.sh/updates/download/golden"

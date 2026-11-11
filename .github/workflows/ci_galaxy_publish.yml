@@ -1,0 +1,38 @@
+# Publish role to Ansible Galaxy when a release is published manually.
+# For automated releases, Galaxy publish is handled inline by
+# ci_release.yml (release-please). This workflow serves as a fallback
+# for manual or re-published releases.
+# Requires GALAXY_API_KEY secret configured in the repository settings.
+---
+name: Publish to Ansible Galaxy
+
+on:
+  release:
+    types:
+      - published
+
+permissions: {}
+
+jobs:
+  galaxy-import:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install ansible-core
+        run: pip install ansible-core==2.17.8
+
+      - name: Import role to Galaxy
+        run: >-
+          ansible-galaxy role import
+          --token "${{ secrets.GALAXY_API_KEY }}"
+          "${{ github.repository_owner }}"
+          "${{ github.event.repository.name }}"

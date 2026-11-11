@@ -1,0 +1,34 @@
+---
+# Resolve install method: auto-detect from OS family or use explicit override
+- name: Resolve installation method
+  ansible.builtin.set_fact:
+    _cursor_resolved_method: >-
+      {{ (cursor_install_method == 'auto')
+         | ternary(_cursor_method_map[ansible_facts['os_family']] | default('appimage'),
+                   cursor_install_method) }}
+
+- name: Validate installation method
+  ansible.builtin.assert:
+    that:
+      - _cursor_resolved_method in _cursor_platform_map
+    fail_msg: >-
+      Unsupported cursor_install_method '{{ cursor_install_method }}'
+      (resolved to '{{ _cursor_resolved_method }}').
+      Use auto, rpm, deb, or appimage.
+
+# Resolve platform slug from method + architecture
+- name: Resolve platform slug
+  ansible.builtin.set_fact:
+    _cursor_platform_slug: >-
+      {{ _cursor_platform_map[_cursor_resolved_method][ansible_facts['architecture']]
+         | default('', true) }}
+
+- name: Validate CPU architecture
+  ansible.builtin.assert:
+    that:
+      - _cursor_platform_slug | length > 0
+    fail_msg: >-
+      Unsupported architecture '{{ ansible_facts['architecture'] }}'
+      for install method '{{ _cursor_resolved_method }}'.
+      Supported architectures: {{
+      _cursor_platform_map[_cursor_resolved_method].keys() | join(', ') }}.

@@ -1,0 +1,37 @@
+# Lint and test the role on every push and pull request.
+# Tests run offline: the AppImage integration test starts a local fake
+# Cursor download API instead of contacting the real service.
+---
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+jobs:
+  lint-and-test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: pip install ansible-core==2.20.7 'ansible-lint==26' yamllint
+
+      - name: Lint
+        run: make lint
+
+      - name: Run tests
+        run: make test

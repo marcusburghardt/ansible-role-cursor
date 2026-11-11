@@ -1,0 +1,10 @@
+---
+profile: production
+
+exclude_paths:
+  - .github/
+  - openspec/
+
+skip_list:
+  # release-please creates CHANGELOG.md on the first release
+  - galaxy[no-changelog]

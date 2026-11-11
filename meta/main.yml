@@ -1,0 +1,27 @@
+---
+galaxy_info:
+  author: Marcus Burghardt
+  description: Role to install and update Cursor IDE on Linux.
+  license: Apache-2.0
+  role_name: cursor
+  namespace: marcusburghardt
+  min_ansible_version: '2.16'
+  platforms:
+    - name: EL
+      versions:
+        - all
+    - name: Fedora
+      versions:
+        - all
+    - name: Debian
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - cursor
+    - ide
+    - development
+    - devtools
+dependencies: []
