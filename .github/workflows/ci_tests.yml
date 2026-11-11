@@ -28,7 +28,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install test dependencies
-        run: pip install ansible-core==2.20.7 'ansible-lint==26' yamllint
+        run: pip install ansible-core==2.20.7 'ansible-lint==26.11.0' yamllint
 
       - name: Lint
         run: make lint
